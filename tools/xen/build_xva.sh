@@ -122,12 +122,36 @@ EOF
 # Configure the network
 INTERFACES=$STAGING_DIR/etc/network/interfaces
 cp $TEMPLATES_DIR/interfaces.in  $INTERFACES
-sed -e "s,@ETH1_IP@,$VM_IP,g" -i $INTERFACES
-sed -e "s,@ETH1_NETMASK@,$VM_NETMASK,g" -i $INTERFACES
-sed -e "s,@ETH2_IP@,$MGT_IP,g" -i $INTERFACES
-sed -e "s,@ETH2_NETMASK@,$MGT_NETMASK,g" -i $INTERFACES
-sed -e "s,@ETH3_IP@,$PUB_IP,g" -i $INTERFACES
-sed -e "s,@ETH3_NETMASK@,$PUB_NETMASK,g" -i $INTERFACES
+if [ $VM_IP == "dhcp" ]
+then
+    echo 'eth1 on dhcp'
+    sed -e "s,iface eth1 inet static,iface eth1 inet dhcp,g" -i $INTERFACES
+    sed -e '/@ETH1_/d' -i $INTERFACES
+else
+    sed -e "s,@ETH1_IP@,$VM_IP,g" -i $INTERFACES
+    sed -e "s,@ETH1_NETMASK@,$VM_NETMASK,g" -i $INTERFACES
+fi
+
+if [ $MGT_IP == "dhcp" ]
+then
+    echo 'eth2 on dhcp'
+    sed -e "s,iface eth2 inet static,iface eth2 inet dhcp,g" -i $INTERFACES 
+    sed -e '/@ETH2_/d' -i $INTERFACES
+else
+    sed -e "s,@ETH2_IP@,$MGT_IP,g" -i $INTERFACES
+    sed -e "s,@ETH2_NETMASK@,$MGT_NETMASK,g" -i $INTERFACES
+fi
+
+if [ $PUB_IP == "dhcp" ]
+then
+    echo 'eth3 on dhcp'
+    sed -e "s,iface eth3 inet static,iface eth3 inet dhcp,g" -i $INTERFACES
+    sed -e '/@ETH3_/d' -i $INTERFACES
+    PUB_IP=$PUB_IP"-eth3"
+else
+    sed -e "s,@ETH3_IP@,$PUB_IP,g" -i $INTERFACES
+    sed -e "s,@ETH3_NETMASK@,$PUB_NETMASK,g" -i $INTERFACES
+fi
 
 # Gracefully cp only if source file/dir exists
 function cp_it {

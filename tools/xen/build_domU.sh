@@ -45,7 +45,6 @@ function create_network() {
 }
 
 # Create host, vm, mgmt, pub networks
-create_network xapi0
 create_network $VM_BR
 create_network $MGT_BR
 create_network $PUB_BR
@@ -73,14 +72,6 @@ create_vlan $PIF $MGT_VLAN $MGT_NET
 
 # dom0 ip
 HOST_IP=${HOST_IP:-`ifconfig xenbr0 | grep "inet addr" | cut -d ":" -f2 | sed "s/ .*//"`}
-
-# Setup host-only nat rules
-HOST_NET=169.254.0.0/16
-if ! iptables -L -v -t nat | grep -q $HOST_NET; then
-    iptables -t nat -A POSTROUTING -s $HOST_NET -j SNAT --to-source $HOST_IP
-    iptables -I FORWARD 1 -s $HOST_NET -j ACCEPT
-    /etc/init.d/iptables save
-fi
 
 # Set up ip forwarding
 if ! grep -q "FORWARD_IPV4=YES" /etc/sysconfig/network; then
