@@ -77,9 +77,6 @@ cp $FILES_DIR/hvc0.conf $STAGING_DIR/etc/init/
 # Put the VPX into UTC.
 rm -f $STAGING_DIR/etc/localtime
 
-# Configure dns (use same dns as dom0)
-cp /etc/resolv.conf $STAGING_DIR/etc/resolv.conf
-
 # Copy over devstack
 rm -f /tmp/devstack.tar
 tar --exclude='stage' --exclude='xen/xvas' --exclude='xen/nova' -cvf /tmp/devstack.tar $TOP_DIR/../../../devstack
