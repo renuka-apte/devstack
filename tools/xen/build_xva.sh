@@ -150,6 +150,10 @@ else
     sed -e "s,@ETH3_NETMASK@,$PUB_NETMASK,g" -i $INTERFACES
 fi
 
+if [ -h $STAGING_DIR/sbin/dhclient3 ]; then
+    rm -f $STAGING_DIR/sbin/dhclient3
+fi
+
 # Gracefully cp only if source file/dir exists
 function cp_it {
     if [ -e $1 ] || [ -d $1 ]; then
