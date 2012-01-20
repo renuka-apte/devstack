@@ -106,6 +106,11 @@ su -c "/opt/stack/run.sh > /opt/stack/run.sh.log" stack
 exit 0
 EOF
 
+# apt-cache for santa clara (citrix)
+cat <<EOF >$STAGING_DIR/etc/apt/apt.conf.d/02proxy
+Acquire::http { Proxy "http://apt:3142"; };
+EOF
+
 # Clean old xva. In the future may not do this every time.
 rm -f $XVA
 
