@@ -66,6 +66,12 @@ fi
 # We try to have sensible defaults, so you should be able to run ``./stack.sh``
 # in most cases.
 #
+# We support HTTP and HTTPS proxy servers via the usual environment variables
+# http_proxy and https_proxy.  They can be set in localrc if necessary or
+# on the command line::
+#
+#     http_proxy=http://proxy.example.com:3128/ ./stack.sh
+#
 # We source our settings from ``stackrc``.  This file is distributed with devstack
 # and contains locations for what repositories to use.  If you want to use other
 # repositories and branches, you can add your own settings with another file called
@@ -85,8 +91,9 @@ function apt_get() {
     [[ "$OFFLINE" = "True" ]] && return
     local sudo="sudo"
     [ "$(id -u)" = "0" ] && sudo="env"
-    $sudo DEBIAN_FRONTEND=noninteractive apt-get \
-        --option "Dpkg::Options::=--force-confold" --assume-yes "$@"
+    $sudo DEBIAN_FRONTEND=noninteractive \
+        http_proxy=$http_proxy https_proxy=$https_proxy \
+        apt-get --option "Dpkg::Options::=--force-confold" --assume-yes "$@"
 }
 
 # Check to see if we are already running a stack.sh
@@ -186,7 +193,7 @@ Q_PORT=${Q_PORT:-9696}
 Q_HOST=${Q_HOST:-localhost}
 
 # Specify which services to launch.  These generally correspond to screen tabs
-ENABLED_SERVICES=${ENABLED_SERVICES:-g-api,g-reg,key,n-api,n-cpu,n-net,n-sch,n-vnc,horizon,mysql,rabbit,openstackx}
+ENABLED_SERVICES=${ENABLED_SERVICES:-g-api,g-reg,key,n-api,n-cpu,n-net,n-sch,n-novnc,n-xvnc,n-cauth,horizon,mysql,rabbit,openstackx}
 
 # Name of the lvm volume group to use/create for iscsi volumes
 VOLUME_GROUP=${VOLUME_GROUP:-nova-volumes}
@@ -403,6 +410,14 @@ read_password SERVICE_TOKEN "ENTER A SERVICE_TOKEN TO USE FOR THE SERVICE ADMIN 
 # Horizon currently truncates usernames and passwords at 20 characters
 read_password ADMIN_PASSWORD "ENTER A PASSWORD TO USE FOR HORIZON AND KEYSTONE (20 CHARS OR LESS)."
 
+# Set Keystone interface configuration
+KEYSTONE_AUTH_HOST=${KEYSTONE_AUTH_HOST:-$SERVICE_HOST}
+KEYSTONE_AUTH_PORT=${KEYSTONE_AUTH_PORT:-35357}
+KEYSTONE_AUTH_PROTOCOL=${KEYSTONE_AUTH_PROTOCOL:-http}
+KEYSTONE_SERVICE_HOST=${KEYSTONE_SERVICE_HOST:-$SERVICE_HOST}
+KEYSTONE_SERVICE_PORT=${KEYSTONE_SERVICE_PORT:-5000}
+KEYSTONE_SERVICE_PROTOCOL=${KEYSTONE_SERVICE_PROTOCOL:-http}
+
 # Log files
 # ---------
 
@@ -513,7 +528,10 @@ function get_packages() {
 
 function pip_install {
     [[ "$OFFLINE" = "True" ]] && return
-    sudo PIP_DOWNLOAD_CACHE=/var/cache/pip pip install --use-mirrors $@
+    sudo PIP_DOWNLOAD_CACHE=/var/cache/pip \
+        HTTP_PROXY=$http_proxy \
+        HTTPS_PROXY=$https_proxy \
+        pip install --use-mirrors $@
 }
 
 # install apt requirements
@@ -589,7 +607,7 @@ if [[ "$ENABLED_SERVICES" =~ "g-api" ||
     # image catalog service
     git_clone $GLANCE_REPO $GLANCE_DIR $GLANCE_BRANCH
 fi
-if [[ "$ENABLED_SERVICES" =~ "n-vnc" ]]; then
+if [[ "$ENABLED_SERVICES" =~ "n-novnc" ]]; then
     # a websockets/html5 or flash powered VNC console for vm instances
     git_clone $NOVNC_REPO $NOVNC_DIR $NOVNC_BRANCH
 fi
@@ -773,19 +791,47 @@ if [[ "$ENABLED_SERVICES" =~ "g-reg" ]]; then
     mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'DROP DATABASE IF EXISTS glance;'
     mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'CREATE DATABASE glance;'
 
+    function glance_config {
+        sudo sed -e "
+            s,%KEYSTONE_AUTH_HOST%,$KEYSTONE_AUTH_HOST,g;
+            s,%KEYSTONE_AUTH_PORT%,$KEYSTONE_AUTH_PORT,g;
+            s,%KEYSTONE_AUTH_PROTOCOL%,$KEYSTONE_AUTH_PROTOCOL,g;
+            s,%KEYSTONE_SERVICE_HOST%,$KEYSTONE_SERVICE_HOST,g;
+            s,%KEYSTONE_SERVICE_PORT%,$KEYSTONE_SERVICE_PORT,g;
+            s,%KEYSTONE_SERVICE_PROTOCOL%,$KEYSTONE_SERVICE_PROTOCOL,g;
+            s,%SQL_CONN%,$BASE_SQL_CONN/glance,g;
+            s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g;
+            s,%DEST%,$DEST,g;
+            s,%SYSLOG%,$SYSLOG,g;
+        " -i $1
+    }
+
     # Copy over our glance configurations and update them
-    GLANCE_CONF=$GLANCE_DIR/etc/glance-registry.conf
-    cp $FILES/glance-registry.conf $GLANCE_CONF
-    sudo sed -e "s,%SQL_CONN%,$BASE_SQL_CONN/glance,g" -i $GLANCE_CONF
-    sudo sed -e "s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g" -i $GLANCE_CONF
-    sudo sed -e "s,%DEST%,$DEST,g" -i $GLANCE_CONF
-    sudo sed -e "s,%SYSLOG%,$SYSLOG,g" -i $GLANCE_CONF
+    GLANCE_REGISTRY_CONF=$GLANCE_DIR/etc/glance-registry.conf
+    cp $FILES/glance-registry.conf $GLANCE_REGISTRY_CONF
+    glance_config $GLANCE_REGISTRY_CONF
+
+    if [[ -e $FILES/glance-registry-paste.ini ]]; then
+        GLANCE_REGISTRY_PASTE_INI=$GLANCE_DIR/etc/glance-registry-paste.ini
+        cp $FILES/glance-registry-paste.ini $GLANCE_REGISTRY_PASTE_INI
+        glance_config $GLANCE_REGISTRY_PASTE_INI
+        # During the transition for Glance to the split config files
+        # we cat them together to handle both pre- and post-merge
+        cat $GLANCE_REGISTRY_PASTE_INI >>$GLANCE_REGISTRY_CONF
+    fi
 
     GLANCE_API_CONF=$GLANCE_DIR/etc/glance-api.conf
     cp $FILES/glance-api.conf $GLANCE_API_CONF
-    sudo sed -e "s,%DEST%,$DEST,g" -i $GLANCE_API_CONF
-    sudo sed -e "s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g" -i $GLANCE_API_CONF
-    sudo sed -e "s,%SYSLOG%,$SYSLOG,g" -i $GLANCE_API_CONF
+    glance_config $GLANCE_API_CONF
+
+    if [[ -e $FILES/glance-api-paste.ini ]]; then
+        GLANCE_API_PASTE_INI=$GLANCE_DIR/etc/glance-api-paste.ini
+        cp $FILES/glance-api-paste.ini $GLANCE_API_PASTE_INI
+        glance_config $GLANCE_API_PASTE_INI
+        # During the transition for Glance to the split config files
+        # we cat them together to handle both pre- and post-merge
+        cat $GLANCE_API_PASTE_INI >>$GLANCE_API_CONF
+    fi
 fi
 
 # Nova
@@ -796,7 +842,7 @@ if [[ "$ENABLED_SERVICES" =~ "n-api" ]]; then
     # the configuration required for nova to validate keystone tokens.
 
     # First we add a some extra data to the default paste config from nova
-    cat $NOVA_DIR/etc/nova/api-paste.ini $FILES/nova-api-paste.ini > $NOVA_DIR/bin/nova-api-paste.ini
+    cp $NOVA_DIR/etc/nova/api-paste.ini $NOVA_DIR/bin/nova-api-paste.ini
 
     # Then we add our own service token to the configuration
     sed -e "s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g" -i $NOVA_DIR/bin/nova-api-paste.ini
@@ -805,11 +851,10 @@ if [[ "$ENABLED_SERVICES" =~ "n-api" ]]; then
     function replace_pipeline() {
         sed "/\[pipeline:$1\]/,/\[/s/^pipeline = .*/pipeline = $2/" -i $NOVA_DIR/bin/nova-api-paste.ini
     }
-    replace_pipeline "ec2cloud" "ec2faultwrap logrequest totoken authtoken keystonecontext cloudrequest authorizer ec2executor"
+    replace_pipeline "ec2cloud" "ec2faultwrap logrequest totoken authtoken keystonecontext cloudrequest authorizer validator ec2executor"
     replace_pipeline "ec2admin" "ec2faultwrap logrequest totoken authtoken keystonecontext adminrequest authorizer ec2executor"
-    replace_pipeline "openstack_api_v2" "faultwrap authtoken keystonecontext ratelimit serialize extensions osapi_app_v2"
-    replace_pipeline "openstack_compute_api_v2" "faultwrap authtoken keystonecontext ratelimit serialize compute_extensions osapi_compute_app_v2"
-    replace_pipeline "openstack_volume_api_v1" "faultwrap authtoken keystonecontext ratelimit serialize volume_extensions osapi_volume_app_v1"
+    replace_pipeline "openstack_compute_api_v2" "faultwrap authtoken keystonecontext ratelimit osapi_compute_app_v2"
+    replace_pipeline "openstack_volume_api_v1" "faultwrap authtoken keystonecontext ratelimit osapi_volume_app_v1"
 fi
 
 # Helper to clean iptables rules
@@ -892,7 +937,7 @@ if [[ "$ENABLED_SERVICES" =~ "n-cpu" ]]; then
 
     # Destroy old instances
     instances=`virsh list --all | grep $INSTANCE_NAME_PREFIX | sed "s/.*\($INSTANCE_NAME_PREFIX[0-9a-fA-F]*\).*/\1/g"`
-    if [ ! $instances = "" ]; then
+    if [ ! "$instances" = "" ]; then
         echo $instances | xargs -n1 virsh destroy || true
         echo $instances | xargs -n1 virsh undefine || true
     fi
@@ -979,7 +1024,7 @@ if [[ "$ENABLED_SERVICES" =~ "swift" ]]; then
        # We need a special version of bin/swift which understand the
        # OpenStack api 2.0, we download it until this is getting
        # integrated in swift.
-       sudo curl -s -o/usr/local/bin/swift \
+       sudo https_proxy=$https_proxy curl -s -o/usr/local/bin/swift \
            'https://review.openstack.org/gitweb?p=openstack/swift.git;a=blob_plain;f=bin/swift;hb=48bfda6e2fdf3886c98bd15649887d54b9a2574e'
    else
        swift_auth_server=tempauth
@@ -1061,7 +1106,8 @@ if [[ "$ENABLED_SERVICES" =~ "n-vol" ]]; then
     #
     # By default, the backing file is 2G in size, and is stored in /opt/stack.
 
-    apt_get install iscsitarget-dkms iscsitarget
+    # install the package
+    apt_get install tgt
 
     if ! sudo vgs $VOLUME_GROUP; then
         VOLUME_BACKING_FILE=${VOLUME_BACKING_FILE:-$DEST/nova-volumes-backing-file}
@@ -1088,9 +1134,10 @@ if [[ "$ENABLED_SERVICES" =~ "n-vol" ]]; then
         done
     fi
 
-    # Configure iscsitarget
-    sudo sed 's/ISCSITARGET_ENABLE=false/ISCSITARGET_ENABLE=true/' -i /etc/default/iscsitarget
-    sudo /etc/init.d/iscsitarget restart
+    # tgt in oneiric doesn't restart properly if tgtd isn't running
+    # do it in two steps
+    sudo stop tgt || true
+    sudo start tgt
 fi
 
 function add_nova_flag {
@@ -1112,7 +1159,7 @@ if [[ "$ENABLED_SERVICES" =~ "quantum" ]]; then
         add_nova_flag "--libvirt_vif_type=ethernet"
         add_nova_flag "--libvirt_vif_driver=nova.virt.libvirt.vif.LibvirtOpenVswitchDriver"
         add_nova_flag "--linuxnet_interface_driver=nova.network.linux_net.LinuxOVSInterfaceDriver"
-        add_nova_flag "--quantum-use-dhcp"
+        add_nova_flag "--quantum_use_dhcp"
     fi
 else
     add_nova_flag "--network_manager=nova.network.manager.$NET_MAN"
@@ -1120,6 +1167,8 @@ fi
 if [[ "$ENABLED_SERVICES" =~ "n-vol" ]]; then
     add_nova_flag "--volume_group=$VOLUME_GROUP"
     add_nova_flag "--volume_name_template=${VOLUME_NAME_PREFIX}%08x"
+    # oneiric no longer supports ietadm
+    add_nova_flag "--iscsi_helper=tgtadm"
 fi
 add_nova_flag "--my_ip=$HOST_IP"
 add_nova_flag "--public_interface=$PUBLIC_INTERFACE"
@@ -1128,14 +1177,23 @@ add_nova_flag "--sql_connection=$BASE_SQL_CONN/nova"
 add_nova_flag "--libvirt_type=$LIBVIRT_TYPE"
 add_nova_flag "--instance_name_template=${INSTANCE_NAME_PREFIX}%08x"
 if [[ "$ENABLED_SERVICES" =~ "openstackx" ]]; then
-    add_nova_flag "--osapi_extension=nova.api.openstack.v2.contrib.standard_extensions"
-    add_nova_flag "--osapi_extension=extensions.admin.Admin"
+    add_nova_flag "--osapi_compute_extension=nova.api.openstack.compute.contrib.standard_extensions"
+    add_nova_flag "--osapi_compute_extension=extensions.admin.Admin"
 fi
-if [[ "$ENABLED_SERVICES" =~ "n-vnc" ]]; then
-    VNCPROXY_URL=${VNCPROXY_URL:-"http://$SERVICE_HOST:6080"}
-    add_nova_flag "--vncproxy_url=$VNCPROXY_URL"
-    add_nova_flag "--vncproxy_wwwroot=$NOVNC_DIR/"
+if [[ "$ENABLED_SERVICES" =~ "n-novnc" ]]; then
+    NOVNCPROXY_URL=${NOVNCPROXY_URL:-"http://$SERVICE_HOST:6080/vnc_auto.html"}
+    add_nova_flag "--novncproxy_base_url=$NOVNCPROXY_URL"
 fi
+if [[ "$ENABLED_SERVICES" =~ "n-xvnc" ]]; then
+    XVPVNCPROXY_URL=${XVPVNCPROXY_URL:-"http://$SERVICE_HOST:6081/console"}
+    add_nova_flag "--xvpvncproxy_base_url=$XVPVNCPROXY_URL"
+fi
+if [ "$VIRT_DRIVER" = 'xenserver' ]; then
+    VNCSERVER_PROXYCLIENT_ADDRESS=${VNCSERVER_PROXYCLIENT_ADDRESS=169.254.0.1}
+else
+    VNCSERVER_PROXYCLIENT_ADDRESS=${VNCSERVER_PROXYCLIENT_ADDRESS=127.0.0.1}
+fi
+add_nova_flag "--vncserver_proxyclient_address=$VNCSERVER_PROXYCLIENT_ADDRESS"
 add_nova_flag "--api_paste_config=$NOVA_DIR/bin/nova-api-paste.ini"
 add_nova_flag "--image_service=nova.image.glance.GlanceImageService"
 add_nova_flag "--ec2_dmz_host=$EC2_DMZ_HOST"
@@ -1174,7 +1232,11 @@ if [ "$VIRT_DRIVER" = 'xenserver' ]; then
     add_nova_flag "--flat_interface=eth1"
     add_nova_flag "--flat_network_bridge=xapi1"
     add_nova_flag "--public_interface=eth3"
+    # Need to avoid crash due to new firewall support
+    XEN_FIREWALL_DRIVER=${XEN_FIREWALL_DRIVER:-"nova.virt.firewall.IptablesFirewallDriver"}
+    add_nova_flag "--firewall_driver=$XEN_FIREWALL_DRIVER"
 else
+    add_nova_flag "--connection_type=libvirt"
     add_nova_flag "--flat_network_bridge=$FLAT_NETWORK_BRIDGE"
     if [ -n "$FLAT_INTERFACE" ]; then
         add_nova_flag "--flat_interface=$FLAT_INTERFACE"
@@ -1214,9 +1276,17 @@ if [[ "$ENABLED_SERVICES" =~ "key" ]]; then
     # keystone_data.sh creates our admin user and our ``SERVICE_TOKEN``.
     KEYSTONE_DATA=$KEYSTONE_DIR/bin/keystone_data.sh
     cp $FILES/keystone_data.sh $KEYSTONE_DATA
-    sudo sed -e "s,%SERVICE_HOST%,$SERVICE_HOST,g" -i $KEYSTONE_DATA
-    sudo sed -e "s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g" -i $KEYSTONE_DATA
-    sudo sed -e "s,%ADMIN_PASSWORD%,$ADMIN_PASSWORD,g" -i $KEYSTONE_DATA
+    sudo sed -e "
+        s,%KEYSTONE_AUTH_HOST%,$KEYSTONE_AUTH_HOST,g;
+        s,%KEYSTONE_AUTH_PORT%,$KEYSTONE_AUTH_PORT,g;
+        s,%KEYSTONE_AUTH_PROTOCOL%,$KEYSTONE_AUTH_PROTOCOL,g;
+        s,%KEYSTONE_SERVICE_HOST%,$KEYSTONE_SERVICE_HOST,g;
+        s,%KEYSTONE_SERVICE_PORT%,$KEYSTONE_SERVICE_PORT,g;
+        s,%KEYSTONE_SERVICE_PROTOCOL%,$KEYSTONE_SERVICE_PROTOCOL,g;
+        s,%SERVICE_HOST%,$SERVICE_HOST,g;
+        s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g;
+        s,%ADMIN_PASSWORD%,$ADMIN_PASSWORD,g;
+    " -i $KEYSTONE_DATA
     # initialize keystone with default users/endpoints
     ENABLED_SERVICES=$ENABLED_SERVICES BIN_DIR=$KEYSTONE_DIR/bin bash $KEYSTONE_DATA
 
@@ -1249,7 +1319,7 @@ function screen_it {
             # sleep to allow bash to be ready to be send the command - we are
             # creating a new window in screen and then sends characters, so if
             # bash isn't running by the time we send the command, nothing happens
-            sleep 1
+            sleep 1.5
             screen -S stack -p $1 -X stuff "$2$NL"
         fi
     fi
@@ -1270,7 +1340,7 @@ fi
 if [[ "$ENABLED_SERVICES" =~ "g-api" ]]; then
     screen_it g-api "cd $GLANCE_DIR; bin/glance-api --config-file=etc/glance-api.conf"
     echo "Waiting for g-api ($GLANCE_HOSTPORT) to start..."
-    if ! timeout $SERVICE_TIMEOUT sh -c "while ! wget -q -O- http://$GLANCE_HOSTPORT; do sleep 1; done"; then
+    if ! timeout $SERVICE_TIMEOUT sh -c "while ! http_proxy= wget -q -O- http://$GLANCE_HOSTPORT; do sleep 1; done"; then
       echo "g-api did not start"
       exit 1
     fi
@@ -1280,7 +1350,7 @@ fi
 if [[ "$ENABLED_SERVICES" =~ "key" ]]; then
     screen_it key "cd $KEYSTONE_DIR && $KEYSTONE_DIR/bin/keystone --config-file $KEYSTONE_CONF $KEYSTONE_LOG_CONFIG -d"
     echo "Waiting for keystone to start..."
-    if ! timeout $SERVICE_TIMEOUT sh -c "while ! wget -q -O- http://127.0.0.1:5000; do sleep 1; done"; then
+    if ! timeout $SERVICE_TIMEOUT sh -c "while ! http_proxy= wget -q -O- $KEYSTONE_SERVICE_PROTOCOL://$KEYSTONE_SERVICE_HOST:$KEYSTONE_SERVICE_PORT; do sleep 1; done"; then
       echo "keystone did not start"
       exit 1
     fi
@@ -1290,7 +1360,7 @@ fi
 if [[ "$ENABLED_SERVICES" =~ "n-api" ]]; then
     screen_it n-api "cd $NOVA_DIR && $NOVA_DIR/bin/nova-api"
     echo "Waiting for nova-api to start..."
-    if ! timeout $SERVICE_TIMEOUT sh -c "while ! wget -q -O- http://127.0.0.1:8774; do sleep 1; done"; then
+    if ! timeout $SERVICE_TIMEOUT sh -c "while ! http_proxy= wget -q -O- http://127.0.0.1:8774; do sleep 1; done"; then
       echo "nova-api did not start"
       exit 1
     fi
@@ -1304,6 +1374,7 @@ if [[ "$ENABLED_SERVICES" =~ "q-svc" ]]; then
         apt_get install openvswitch-switch openvswitch-datapath-dkms
         # Create database for the plugin/agent
         if [[ "$ENABLED_SERVICES" =~ "mysql" ]]; then
+            mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'DROP DATABASE IF EXISTS ovs_quantum;'
             mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e 'CREATE DATABASE IF NOT EXISTS ovs_quantum;'
         else
             echo "mysql must be enabled in order to use the $Q_PLUGIN Quantum plugin."
@@ -1324,10 +1395,13 @@ if [[ "$ENABLED_SERVICES" =~ "q-agt" ]]; then
         sudo ovs-vsctl --no-wait -- --if-exists del-br $OVS_BRIDGE
         sudo ovs-vsctl --no-wait add-br $OVS_BRIDGE
         sudo ovs-vsctl --no-wait br-set-external-id $OVS_BRIDGE bridge-id br-int
+
+       # Start up the quantum <-> openvswitch agent
+       QUANTUM_OVS_CONFIG_FILE=$QUANTUM_DIR/etc/quantum/plugins/openvswitch/ovs_quantum_plugin.ini
+       sed -i -e "s/^sql_connection =.*$/sql_connection = mysql:\/\/$MYSQL_USER:$MYSQL_PASSWORD@$MYSQL_HOST\/ovs_quantum/g" $QUANTUM_OVS_CONFIG_FILE
+       screen_it q-agt "sleep 4; sudo python $QUANTUM_DIR/quantum/plugins/openvswitch/agent/ovs_quantum_agent.py $QUANTUM_OVS_CONFIG_FILE -v"
     fi
 
-    # Start up the quantum <-> openvswitch agent
-    screen_it q-agt "sleep 4; sudo python $QUANTUM_DIR/quantum/plugins/openvswitch/agent/ovs_quantum_agent.py $QUANTUM_DIR/etc/quantum/plugins/openvswitch/ovs_quantum_plugin.ini -v"
 fi
 
 # If we're using Quantum (i.e. q-svc is enabled), network creation has to
@@ -1356,8 +1430,14 @@ screen_it n-cpu "cd $NOVA_DIR && sg libvirtd $NOVA_DIR/bin/nova-compute"
 screen_it n-vol "cd $NOVA_DIR && $NOVA_DIR/bin/nova-volume"
 screen_it n-net "cd $NOVA_DIR && $NOVA_DIR/bin/nova-network"
 screen_it n-sch "cd $NOVA_DIR && $NOVA_DIR/bin/nova-scheduler"
-if [[ "$ENABLED_SERVICES" =~ "n-vnc" ]]; then
-    screen_it n-vnc "cd $NOVNC_DIR && ./utils/nova-wsproxy.py --flagfile $NOVA_DIR/bin/nova.conf --web . 6080"
+if [[ "$ENABLED_SERVICES" =~ "n-novnc" ]]; then
+    screen_it n-novnc "cd $NOVNC_DIR && ./utils/nova-novncproxy --flagfile $NOVA_DIR/bin/nova.conf --web ."
+fi
+if [[ "$ENABLED_SERVICES" =~ "n-xvnc" ]]; then
+    screen_it n-xvnc "cd $NOVA_DIR && ./bin/nova-xvpvncproxy --flagfile $NOVA_DIR/bin/nova.conf"
+fi
+if [[ "$ENABLED_SERVICES" =~ "n-cauth" ]]; then
+    screen_it n-cauth "cd $NOVA_DIR && ./bin/nova-consoleauth"
 fi
 if [[ "$ENABLED_SERVICES" =~ "horizon" ]]; then
     screen_it horizon "cd $HORIZON_DIR && sudo tail -f /var/log/apache2/error.log"
@@ -1472,7 +1552,7 @@ fi
 
 # If keystone is present, you can point nova cli to this server
 if [[ "$ENABLED_SERVICES" =~ "key" ]]; then
-    echo "keystone is serving at http://$SERVICE_HOST:5000/v2.0/"
+    echo "keystone is serving at $KEYSTONE_SERVICE_PROTOCOL://$KEYSTONE_SERVICE_HOST:$KEYSTONE_SERVICE_PORT/v2.0/"
     echo "examples on using novaclient command line is in exercise.sh"
     echo "the default users are: admin and demo"
     echo "the password: $ADMIN_PASSWORD"
