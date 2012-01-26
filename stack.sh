@@ -184,6 +184,7 @@ NOVNC_DIR=$DEST/noVNC
 SWIFT_DIR=$DEST/swift
 SWIFT_KEYSTONE_DIR=$DEST/swift-keystone2
 QUANTUM_DIR=$DEST/quantum
+QUANTUM_CLIENT_DIR=$DEST/python-quantumclient
 
 # Default Quantum Plugin
 Q_PLUGIN=${Q_PLUGIN:-openvswitch}
@@ -418,6 +419,14 @@ KEYSTONE_SERVICE_HOST=${KEYSTONE_SERVICE_HOST:-$SERVICE_HOST}
 KEYSTONE_SERVICE_PORT=${KEYSTONE_SERVICE_PORT:-5000}
 KEYSTONE_SERVICE_PROTOCOL=${KEYSTONE_SERVICE_PROTOCOL:-http}
 
+# Horizon
+# -------
+
+# Allow overriding the default Apache user and group, default both to
+# current user.
+APACHE_USER=${APACHE_USER:-$USER}
+APACHE_GROUP=${APACHE_GROUP:-$APACHE_USER}
+
 # Log files
 # ---------
 
@@ -624,6 +633,7 @@ fi
 if [[ "$ENABLED_SERVICES" =~ "q-svc" ]]; then
     # quantum
     git_clone $QUANTUM_REPO $QUANTUM_DIR $QUANTUM_BRANCH
+    git_clone $QUANTUM_CLIENT_REPO $QUANTUM_CLIENT_DIR $QUANTUM_CLIENT_BRANCH
 fi
 
 # Initialization
@@ -743,12 +753,9 @@ if [[ "$ENABLED_SERVICES" =~ "horizon" ]]; then
     # Install apache2, which is NOPRIME'd
     apt_get install apache2 libapache2-mod-wsgi
 
-    # Horizon currently imports quantum even if you aren't using it.  Instead
-    # of installing quantum we can create a simple module that will pass the
-    # initial imports
-    mkdir -p  $HORIZON_DIR/openstack-dashboard/quantum || true
-    touch $HORIZON_DIR/openstack-dashboard/quantum/__init__.py
-    touch $HORIZON_DIR/openstack-dashboard/quantum/client.py
+    # Link to quantum client directory.
+    rm -fr ${HORIZON_DIR}/openstack-dashboard/quantum
+    ln -s ${QUANTUM_CLIENT_DIR}/quantum ${HORIZON_DIR}/openstack-dashboard/quantum
 
 
     # ``local_settings.py`` is used to override horizon default settings.
@@ -770,8 +777,11 @@ if [[ "$ENABLED_SERVICES" =~ "horizon" ]]; then
 
     ## Configure apache's 000-default to run horizon
     sudo cp $FILES/000-default.template /etc/apache2/sites-enabled/000-default
-    sudo sed -e "s,%USER%,$USER,g" -i /etc/apache2/sites-enabled/000-default
-    sudo sed -e "s,%HORIZON_DIR%,$HORIZON_DIR,g" -i /etc/apache2/sites-enabled/000-default
+    sudo sed -e "
+        s,%USER%,$APACHE_USER,g;
+        s,%GROUP%,$APACHE_GROUP,g;
+        s,%HORIZON_DIR%,$HORIZON_DIR,g;
+    " -i /etc/apache2/sites-enabled/000-default
     sudo service apache2 restart
 fi
 
@@ -1384,7 +1394,7 @@ if [[ "$ENABLED_SERVICES" =~ "q-svc" ]]; then
         # Make sure we're using the openvswitch plugin
         sed -i -e "s/^provider =.*$/provider = quantum.plugins.openvswitch.ovs_quantum_plugin.OVSQuantumPlugin/g" $QUANTUM_PLUGIN_INI_FILE
     fi
-    screen_it q-svc "cd $QUANTUM_DIR && PYTHONPATH=.:$PYTHONPATH python $QUANTUM_DIR/bin/quantum-server $QUANTUM_DIR/etc/quantum.conf"
+   screen_it q-svc "cd $QUANTUM_DIR && PYTHONPATH=.:$QUANTUM_CLIENT_DIR:$PYTHONPATH python $QUANTUM_DIR/bin/quantum-server $QUANTUM_DIR/etc/quantum.conf"
 fi
 
 # Quantum agent (for compute nodes)
