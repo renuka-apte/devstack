@@ -179,7 +179,6 @@ GLANCE_DIR=$DEST/glance
 KEYSTONE_DIR=$DEST/keystone
 NOVACLIENT_DIR=$DEST/python-novaclient
 KEYSTONECLIENT_DIR=$DEST/python-keystoneclient
-OPENSTACKX_DIR=$DEST/openstackx
 NOVNC_DIR=$DEST/noVNC
 SWIFT_DIR=$DEST/swift
 SWIFT_KEYSTONE_DIR=$DEST/swift-keystone2
@@ -194,7 +193,7 @@ Q_PORT=${Q_PORT:-9696}
 Q_HOST=${Q_HOST:-localhost}
 
 # Specify which services to launch.  These generally correspond to screen tabs
-ENABLED_SERVICES=${ENABLED_SERVICES:-g-api,g-reg,key,n-api,n-cpu,n-net,n-sch,n-novnc,n-xvnc,n-cauth,horizon,mysql,rabbit,openstackx}
+ENABLED_SERVICES=${ENABLED_SERVICES:-g-api,g-reg,key,n-api,n-crt,n-obj,n-cpu,n-net,n-sch,n-novnc,n-xvnc,n-cauth,horizon,mysql,rabbit}
 
 # Name of the lvm volume group to use/create for iscsi volumes
 VOLUME_GROUP=${VOLUME_GROUP:-nova-volumes}
@@ -625,11 +624,6 @@ if [[ "$ENABLED_SERVICES" =~ "horizon" ]]; then
     git_clone $HORIZON_REPO $HORIZON_DIR $HORIZON_BRANCH $HORIZON_TAG
     git_clone $KEYSTONECLIENT_REPO $KEYSTONECLIENT_DIR $KEYSTONECLIENT_BRANCH
 fi
-if [[ "$ENABLED_SERVICES" =~ "openstackx" ]]; then
-    # openstackx is a collection of extensions to openstack.compute & nova
-    # that is *deprecated*.  The code is being moved into python-novaclient & nova.
-    git_clone $OPENSTACKX_REPO $OPENSTACKX_DIR $OPENSTACKX_BRANCH
-fi
 if [[ "$ENABLED_SERVICES" =~ "q-svc" ]]; then
     # quantum
     git_clone $QUANTUM_REPO $QUANTUM_DIR $QUANTUM_BRANCH
@@ -658,9 +652,6 @@ if [[ "$ENABLED_SERVICES" =~ "g-api" ||
 fi
 cd $NOVACLIENT_DIR; sudo python setup.py develop
 cd $NOVA_DIR; sudo python setup.py develop
-if [[ "$ENABLED_SERVICES" =~ "openstackx" ]]; then
-    cd $OPENSTACKX_DIR; sudo python setup.py develop
-fi
 if [[ "$ENABLED_SERVICES" =~ "horizon" ]]; then
     cd $KEYSTONECLIENT_DIR; sudo python setup.py develop
     cd $HORIZON_DIR/horizon; sudo python setup.py develop
@@ -1161,6 +1152,9 @@ add_nova_flag "--allow_admin_api"
 add_nova_flag "--scheduler_driver=$SCHEDULER"
 add_nova_flag "--dhcpbridge_flagfile=$NOVA_DIR/bin/nova.conf"
 add_nova_flag "--fixed_range=$FIXED_RANGE"
+if [[ "$ENABLED_SERVICES" =~ "n-obj" ]]; then
+    add_nova_flag "--s3_host=$SERVICE_HOST"
+fi
 if [[ "$ENABLED_SERVICES" =~ "quantum" ]]; then
     add_nova_flag "--network_manager=nova.network.quantum.manager.QuantumManager"
     add_nova_flag "--quantum_connection_host=$Q_HOST"
@@ -1180,16 +1174,13 @@ if [[ "$ENABLED_SERVICES" =~ "n-vol" ]]; then
     # oneiric no longer supports ietadm
     add_nova_flag "--iscsi_helper=tgtadm"
 fi
+add_nova_flag "--osapi_compute_extension=nova.api.openstack.compute.contrib.standard_extensions"
 add_nova_flag "--my_ip=$HOST_IP"
 add_nova_flag "--public_interface=$PUBLIC_INTERFACE"
 add_nova_flag "--vlan_interface=$VLAN_INTERFACE"
 add_nova_flag "--sql_connection=$BASE_SQL_CONN/nova"
 add_nova_flag "--libvirt_type=$LIBVIRT_TYPE"
 add_nova_flag "--instance_name_template=${INSTANCE_NAME_PREFIX}%08x"
-if [[ "$ENABLED_SERVICES" =~ "openstackx" ]]; then
-    add_nova_flag "--osapi_compute_extension=nova.api.openstack.compute.contrib.standard_extensions"
-    add_nova_flag "--osapi_compute_extension=extensions.admin.Admin"
-fi
 if [[ "$ENABLED_SERVICES" =~ "n-novnc" ]]; then
     NOVNCPROXY_URL=${NOVNCPROXY_URL:-"http://$SERVICE_HOST:6080/vnc_auto.html"}
     add_nova_flag "--novncproxy_base_url=$NOVNCPROXY_URL"
@@ -1203,6 +1194,10 @@ if [ "$VIRT_DRIVER" = 'xenserver' ]; then
 else
     VNCSERVER_PROXYCLIENT_ADDRESS=${VNCSERVER_PROXYCLIENT_ADDRESS=127.0.0.1}
 fi
+# Address on which instance vncservers will listen on compute hosts.
+# For multi-host, this should be the management ip of the compute host.
+VNCSERVER_LISTEN=${VNCSERVER_LISTEN=127.0.0.1}
+add_nova_flag "--vncserver_listen=$VNCSERVER_LISTEN"
 add_nova_flag "--vncserver_proxyclient_address=$VNCSERVER_PROXYCLIENT_ADDRESS"
 add_nova_flag "--api_paste_config=$NOVA_DIR/bin/nova-api-paste.ini"
 add_nova_flag "--image_service=nova.image.glance.GlanceImageService"
@@ -1297,6 +1292,10 @@ if [[ "$ENABLED_SERVICES" =~ "key" ]]; then
         s,%SERVICE_TOKEN%,$SERVICE_TOKEN,g;
         s,%ADMIN_PASSWORD%,$ADMIN_PASSWORD,g;
     " -i $KEYSTONE_DATA
+
+    # Prepare up the database
+    $KEYSTONE_DIR/bin/keystone-manage sync_database
+
     # initialize keystone with default users/endpoints
     ENABLED_SERVICES=$ENABLED_SERVICES BIN_DIR=$KEYSTONE_DIR/bin bash $KEYSTONE_DATA
 
@@ -1437,6 +1436,8 @@ fi
 # within the context of our original shell (so our groups won't be updated).
 # Use 'sg' to execute nova-compute as a member of the libvirtd group.
 screen_it n-cpu "cd $NOVA_DIR && sg libvirtd $NOVA_DIR/bin/nova-compute"
+screen_it n-crt "cd $NOVA_DIR && $NOVA_DIR/bin/nova-cert"
+screen_it n-obj "cd $NOVA_DIR && $NOVA_DIR/bin/nova-objectstore"
 screen_it n-vol "cd $NOVA_DIR && $NOVA_DIR/bin/nova-volume"
 screen_it n-net "cd $NOVA_DIR && $NOVA_DIR/bin/nova-network"
 screen_it n-sch "cd $NOVA_DIR && $NOVA_DIR/bin/nova-scheduler"
