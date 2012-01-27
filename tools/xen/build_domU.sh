@@ -99,7 +99,7 @@ if [ "$DO_SHUTDOWN" = "1" ]; then
 fi
 
 # Start guest
-$TOP_DIR/scripts/install-os-vpx.sh -f $XVA -v $VM_BR -m $MGT_BR -p $PUB_BR -l $GUEST_NAME
+$TOP_DIR/scripts/install-os-vpx.sh -f $XVA -v $VM_BR -m $MGT_BR -p $PUB_BR -l $GUEST_NAME -w
 
 # If we have copied our ssh credentials, use ssh to monitor while the installation runs
 WAIT_TILL_LAUNCH=${WAIT_TILL_LAUNCH:-1}
