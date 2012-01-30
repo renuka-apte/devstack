@@ -107,9 +107,12 @@ exit 0
 EOF
 
 # apt-cache for santa clara (citrix)
-cat <<EOF >$STAGING_DIR/etc/apt/apt.conf.d/02proxy
+if [ $SCAPTPROXY == "yes" ]
+then
+    cat <<EOF >$STAGING_DIR/etc/apt/apt.conf.d/02proxy
 Acquire::http { Proxy "http://apt:3142"; };
 EOF
+fi
 
 # Clean old xva. In the future may not do this every time.
 rm -f $XVA
