@@ -1239,8 +1239,10 @@ if [ "$VIRT_DRIVER" = 'xenserver' ]; then
     add_nova_flag "--flat_network_bridge=xapi1"
     add_nova_flag "--public_interface=eth3"
     # Need to avoid crash due to new firewall support
-    XEN_FIREWALL_DRIVER=${XEN_FIREWALL_DRIVER:-"nova.virt.firewall.IptablesFirewallDriver"}
+    XEN_FIREWALL_DRIVER=${XEN_FIREWALL_DRIVER:-"nova.virt.xenapi.firewall.Dom0IptablesFirewallDriver"}
     add_nova_flag "--firewall_driver=$XEN_FIREWALL_DRIVER"
+    AGENT_VERSION_TIMEOUT=${AGENT_VERSION_TIMEOUT:-"300"}
+    add_nova_flag "--agent_version_timeout=$AGENT_VERSION_TIMEOUT"
 else
     add_nova_flag "--connection_type=libvirt"
     add_nova_flag "--flat_network_bridge=$FLAT_NETWORK_BRIDGE"
