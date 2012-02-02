@@ -1219,7 +1219,6 @@ if [ "$SYSLOG" != "False" ]; then
     add_nova_flag "--use_syslog"
 fi
 
-EXTRA_FLAGS=(--firewall_driver=nova.virt.firewall.IptablesFirewallDriver)
 # You can define extra nova conf flags by defining the array EXTRA_FLAGS,
 # For Example: EXTRA_FLAGS=(--foo --bar=2)
 for I in "${EXTRA_FLAGS[@]}"; do
