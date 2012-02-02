@@ -74,6 +74,11 @@ function create_vlan() {
     dev=$1
     vlan=$2
     net=$3
+    # VLAN -1 refers to no VLAN (physical network)
+    if [ $vlan -eq -1 ]
+    then
+        return
+    fi
     if [ -z $(xe vlan-list --minimal tag=$vlan) ]
     then
         pif=$(xe pif-list --minimal network-uuid=$net)
