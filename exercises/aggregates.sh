@@ -107,6 +107,7 @@ nova aggregate-details $aggregate_id | grep {}
 if [ "$VIRT_DRIVER" == "xenserver" ]
 then
     # TODO (johngarbutt): need to add extra tests in here
+    echo "TODO - needs some tests in here for add/remove host, once it works"
 fi
 
 
