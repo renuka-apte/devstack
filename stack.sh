@@ -1243,6 +1243,7 @@ if [ "$VIRT_DRIVER" = 'xenserver' ]; then
     add_nova_flag "--firewall_driver=$XEN_FIREWALL_DRIVER"
     AGENT_VERSION_TIMEOUT=${AGENT_VERSION_TIMEOUT:-"300"}
     add_nova_flag "--agent_version_timeout=$AGENT_VERSION_TIMEOUT"
+    add_nova_flag "--sr_matching_filter=default-sr:true"
 else
     add_nova_flag "--connection_type=libvirt"
     add_nova_flag "--flat_network_bridge=$FLAT_NETWORK_BRIDGE"
