@@ -142,6 +142,19 @@ if [ "$DO_SHUTDOWN" = "1" ]; then
 fi
 
 # Start guest
+if [ -z $VM_BR ]
+then
+    VM_BR=$(xe network-list --minimal uuid=$VM_NET params=bridge)
+fi
+if [ -z $MGT_BR ]
+then
+    VM_BR=$(xe network-list --minimal uuid=$MGT_NET params=bridge)
+fi
+if [ -z $PUB_BR ]
+then
+    VM_BR=$(xe network-list --minimal uuid=$PUB_NET params=bridge)
+fi
+
 $TOP_DIR/scripts/install-os-vpx.sh -f $XVA -v $VM_BR -m $MGT_BR -p $PUB_BR -l $GUEST_NAME -w
 
 # If we have copied our ssh credentials, use ssh to monitor while the installation runs
