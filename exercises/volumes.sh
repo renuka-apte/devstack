@@ -41,7 +41,7 @@ DEFAULT_IMAGE_NAME=${DEFAULT_IMAGE_NAME:-ami}
 # returns a token and catalog of endpoints.  We use python to parse the token
 # and save it.
 
-TOKEN=`curl -s -d  "{\"auth\":{\"passwordCredentials\": {\"username\": \"$NOVA_USERNAME\", \"password\": \"$NOVA_PASSWORD\"}}}" -H "Content-type: application/json" http://$HOST_IP:5000/v2.0/tokens | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['access']['token']['id'];"`
+TOKEN=`curl -s -d  "{\"auth\":{\"passwordCredentials\": {\"username\": \"$OS_USERNAME\", \"password\": \"$OS_PASSWORD\"}}}" -H "Content-type: application/json" ${OS_AUTH_URL%/}/tokens | python -c "import sys; import json; tok = json.loads(sys.stdin.read()); print tok['access']['token']['id'];"`
 
 # Launching a server
 # ==================
@@ -56,10 +56,10 @@ nova list
 nova image-list
 
 # But we recommend using glance directly
-glance -f -A $TOKEN index
+glance -f -A $TOKEN -H $GLANCE_HOST index
 
 # Grab the id of the image to launch
-IMAGE=`glance -f -A $TOKEN index | egrep $DEFAULT_IMAGE_NAME | head -1 | cut -d" " -f1`
+IMAGE=`glance -f -A $TOKEN -H $GLANCE_HOST index | egrep $DEFAULT_IMAGE_NAME | head -1 | cut -d" " -f1`
 
 # determinine instance type
 # -------------------------
