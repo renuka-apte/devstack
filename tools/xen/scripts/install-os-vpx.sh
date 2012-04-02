@@ -343,6 +343,8 @@ set_kernel_params()
   if [ "$args" != "" ]
   then
     echo "Passing Geppetto args to VPX: $args."
+    pvargs=$(xe vm-param-get param-name=PV-args uuid="$v")
+    args="$pvargs $args"
     xe vm-param-set PV-args="$args" uuid="$v"
   fi
 }
@@ -436,6 +438,7 @@ then
   create_vm_vif "$vm_uuid"
   create_management_vif "$vm_uuid"
   create_public_vif "$vm_uuid"
+  set_kernel_params "$vm_uuid"
 else
   if [ ! -f "$VPX_FILE" ]
   then

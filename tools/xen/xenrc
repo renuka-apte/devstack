@@ -35,6 +35,8 @@ MGT_BR=${MGT_BR:-""}
 MGT_VLAN=${MGT_VLAN:-101}
 MGT_DEV=${MGT_DEV:-eth0}
 
+XVA_MEM=1073741824
+
 # XVA Directory
 XVA_DIR=${XVA_DIR:-`pwd`/xvas}
 
