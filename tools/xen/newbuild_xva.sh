@@ -38,9 +38,11 @@ source xenrc
 # Echo commands
 set -o xtrace
 
+GUEST_NAME="$1"
+
 # Directory where we stage the build
-STAGING_DIR=$($TOP_DIR/scripts/open-vdi DevstackOSDomu 0 1 | grep -o "/tmp/tmp.[[:alnum:]]*")
-add_on_exit "$TOP_DIR/scripts/close-vdi DevstackOSDomu 0 1"
+STAGING_DIR=$($TOP_DIR/scripts/open-vdi $GUEST_NAME 0 1 | grep -o "/tmp/tmp.[[:alnum:]]*")
+add_on_exit "$TOP_DIR/scripts/close-vdi $GUEST_NAME 0 1"
 
 # Make sure we have a stage
 if [ ! -d $STAGING_DIR/etc ]; then
@@ -64,10 +66,10 @@ cp /etc/resolv.conf $STAGING_DIR/etc/resolv.conf
 
 # Copy over devstack
 rm -f /tmp/devstack.tar
-tar --exclude='stage' --exclude='xen/xvas' --exclude='xen/nova' -cvf /tmp/devstack.tar $TOP_DIR/../../../devstack
-mkdir -p $STAGING_DIR/opt/stack/
-cd $STAGING_DIR/opt/stack/
-tar xf /tmp/devstack.tar
+cd $TOP_DIR/../../
+tar --exclude='stage' --exclude='xen/xvas' --exclude='xen/nova' -cvf /tmp/devstack.tar .
+mkdir -p $STAGING_DIR/opt/stack/devstack
+tar xf /tmp/devstack.tar -C $STAGING_DIR/opt/stack/devstack
 cd $TOP_DIR
 
 # Run devstack on launch
@@ -144,5 +146,4 @@ UPLOAD_LEGACY_TTY=yes HOST_IP=$PUB_IP VIRT_DRIVER=xenserver FORCE=yes MULTI_HOST
 EOF
 chmod 755 $STAGING_DIR/opt/stack/run.sh
 
-#$TOP_DIR/scripts/close-vdi DevstackOSDomu 0 1
 echo "Done"

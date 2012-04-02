@@ -431,7 +431,7 @@ then
 elif [ "$TEMPLATE_NAME" ]
 then
   echo $TEMPLATE_NAME
-  vm_uuid=$(xe_min vm-install template="$TEMPLATE_NAME" new-name-label="DevstackOSDomu")
+  vm_uuid=$(xe_min vm-install template="$TEMPLATE_NAME" new-name-label="$NAME_LABEL")
   destroy_vifs "$vm_uuid"
   set_auto_start "$vm_uuid"
   create_gi_vif "$vm_uuid"
@@ -439,6 +439,8 @@ then
   create_management_vif "$vm_uuid"
   create_public_vif "$vm_uuid"
   set_kernel_params "$vm_uuid"
+  xe vm-param-set other-config:os-vpx=true uuid="$vm_uuid"
+  xe vm-param-set actions-after-reboot=Destroy uuid="$vm_uuid"
 else
   if [ ! -f "$VPX_FILE" ]
   then

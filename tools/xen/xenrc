@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Name of this guest
-GUEST_NAME=${GUEST_NAME:-ALLINONE}
+GUEST_NAME=${GUEST_NAME:-DevStackOSDomU}
 
 # Size of image
 VDI_MB=${VDI_MB:-2500}
