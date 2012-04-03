@@ -188,7 +188,7 @@ done
 
 vm_uuid=$(xe_min vm-list name-label="$GUEST_NAME")
 xe vm-param-set actions-after-reboot=Restart uuid="$vm_uuid"
-$TOP_DIR/newbuild_xva.sh "$GUEST_NAME"
+$TOP_DIR/build_xva.sh "$GUEST_NAME"
 
 if [ $PUB_IP == "dhcp" ]; then
     PUB_IP=$(xe_min vm-list  name-label=$GUEST_NAME params=networks |  sed -ne 's,^.*3/ip: \([0-9.]*\).*$,\1,p')
