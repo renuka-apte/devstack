@@ -332,14 +332,6 @@ set_kernel_params()
 {
   local v="$1"
   local args=$KERNEL_PARAMS
-  local cmdline=$(cat /proc/cmdline)
-  for word in $cmdline
-  do
-    if echo "$word" | grep -q "geppetto"
-    then
-      args="$word $args"
-    fi
-  done
   if [ "$args" != "" ]
   then
     echo "Passing Geppetto args to VPX: $args."
@@ -441,6 +433,7 @@ then
   set_kernel_params "$vm_uuid"
   xe vm-param-set other-config:os-vpx=true uuid="$vm_uuid"
   xe vm-param-set actions-after-reboot=Destroy uuid="$vm_uuid"
+  xe vm-memory-limits-set vm="$vm_uuid" static-min=1073741824 static-max=1073741824 dynamic-min=1073741824 dynamic-max=1073741824 --multiple
 else
   if [ ! -f "$VPX_FILE" ]
   then
