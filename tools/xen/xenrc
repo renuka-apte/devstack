@@ -35,13 +35,7 @@ MGT_BR=${MGT_BR:-""}
 MGT_VLAN=${MGT_VLAN:-101}
 MGT_DEV=${MGT_DEV:-eth0}
 
-XVA_MEM=1073741824
-
-# XVA Directory
-XVA_DIR=${XVA_DIR:-`pwd`/xvas}
-
-# Path to xva file
-XVA=${XVA:-$XVA_DIR/$GUEST_NAME.xva }
+OSDOMU_MEM=1073741824
 
 # Source params
 cd ../.. && source ./stackrc && cd $TOP_DIR
