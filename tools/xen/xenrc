@@ -35,7 +35,7 @@ MGT_BR=${MGT_BR:-""}
 MGT_VLAN=${MGT_VLAN:-101}
 MGT_DEV=${MGT_DEV:-eth0}
 
-OSDOMU_MEM=1073741824
+OSDOMU_MEM_MB=1024
 
 # Source params
 cd ../.. && source ./stackrc && cd $TOP_DIR

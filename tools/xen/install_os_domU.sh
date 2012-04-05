@@ -27,6 +27,11 @@ xe_min()
 }
 
 cd $TOP_DIR
+if [ -f ./master ]
+then
+    rm -rf ./master
+    rm -rf ./nova
+fi
 wget https://github.com/openstack/nova/zipball/master --no-check-certificate
 unzip -o master -d ./nova
 cp -pr ./nova/*/plugins/xenserver/xenapi/etc/xapi.d /etc/
@@ -35,6 +40,8 @@ chmod a+x /etc/xapi.d/plugins/*
 mkdir -p /boot/guest
 
 GUEST_NAME=${GUEST_NAME:-"DevStackOSDomU"}
+SNAME="ubuntusnapshot"
+TNAME="ubuntuready"
 
 # Helper to create networks
 # Uses echo trickery to return network uuid
@@ -138,7 +145,7 @@ xe sr-param-set uuid=$SR_UUID other-config:i18n-key=local-storage
 DO_SHUTDOWN=${DO_SHUTDOWN:-1}
 if [ "$DO_SHUTDOWN" = "1" ]; then
     # Shutdown all domU's that created previously
-    xe_min vm-list  name-label="$LABEL" | xargs ./scripts/uninstall-os-vpx.sh
+    xe_min vm-list  name-label="$GUEST_NAME" | xargs ./scripts/uninstall-os-vpx.sh
 
     # Destroy any instances that were launched
     for uuid in `xe vm-list | grep -1 instance | grep uuid | sed "s/.*\: //g"`; do
@@ -165,34 +172,38 @@ if [ -z $PUB_BR ]; then
     PUB_BR=$(xe_min network-list  uuid=$PUB_NET params=bridge)
 fi
 
-template=$(xe template-list name-label="Ubuntu 11.10 (64-bit)")
-if [ -z "$template" ]
+templateuuid=$(xe template-list name-label="$TNAME")
+if [ -n "$templateuuid" ]
 then
-	$TOP_DIR/scripts/xenoneirictemplate.sh
+        vm_uuid=$(xe vm-install template="$TNAME" new-name-label="$GUEST_NAME")
+else
+    template=$(xe_min template-list name-label="Ubuntu 11.10 (64-bit)")
+    if [ -z "$template" ]
+    then
+	    $TOP_DIR/scripts/xenoneirictemplate.sh
+    fi
+    $TOP_DIR/scripts/install-os-vpx.sh -t "Ubuntu 11.10 (64-bit)" -v $VM_BR -m $MGT_BR -p $PUB_BR -l $GUEST_NAME -r $OSDOMU_MEM_MB -k "flat_network_bridge=${VM_BR}"
+
+    # Wait for install to finish
+    while true
+    do
+	    state=$(xe_min vm-list name-label="$GUEST_NAME" power-state=halted)
+    	if [ -n "$state" ]
+	    then
+		    break
+    	else
+	    	echo "Waiting for "$GUEST_NAME" to finish installation..."
+		    sleep 30
+    	fi
+    done
+
+    vm_uuid=$(xe_min vm-list name-label="$GUEST_NAME")
+    xe vm-param-set actions-after-reboot=Restart uuid="$vm_uuid"
+
+    # Make template from VM
+    snuuid=$(xe vm-snapshot vm="$GUEST_NAME" new-name-label="$SNAME")
+    template_uuid=$(xe snapshot-clone uuid=$snuuid new-name-label="$TNAME")
 fi
-$TOP_DIR/scripts/
-$TOP_DIR/scripts/install-os-vpx.sh -t "Ubuntu 11.10 (64-bit)" -v $VM_BR -m $MGT_BR -p $PUB_BR -l $GUEST_NAME -r $OSDOMU_MEM -k "flat_network_bridge=${VM_BR}"
-
-# Wait for install to finish
-while true
-do
-	state=$(xe_min vm-list name-label="$GUEST_NAME" power-state=halted)
-	if [ -n "$state" ]
-	then
-		break
-	else
-		echo "Waiting for "$GUEST_NAME" to finish installation..."
-		sleep 30
-	fi
-done
-
-vm_uuid=$(xe_min vm-list name-label="$GUEST_NAME")
-xe vm-param-set actions-after-reboot=Restart uuid="$vm_uuid"
-
-# Make template from VM
-template_uuid=$(xe vm-clone vm="$vm_uuid" new-name-label="DevstackOSDomUTemplate")
-xe vm-param-set uuid="$template_uuid" is-a-template=true \
-                                        other-config:instant=true
 
 $TOP_DIR/build_xva.sh "$GUEST_NAME"
 
